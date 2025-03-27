@@ -10,16 +10,10 @@
 ################################################################################
 
 gradient_accumulation_steps = 6
-num_train_epochs = 10
-
-# Dataset used for fine tuning
-dataset_name = "HuggingFaceH4/MATH-500"
-
-# Base model
-model_id = "meta-llama/Llama-3.2-1B-Instruct"
+num_train_epochs = 8
 
 lr_scheduler_type = "linear"
-logging_steps = 10
+logging_steps = 5
 
 # Maximum sequence length for both inputs and labels
 max_length = 1024
@@ -35,6 +29,11 @@ parser.add_argument("--n_training", type=int, default=-1,
                     help="Number of training examples to use")
 parser.add_argument("--optim_lr", type=float, default=1e-3,
                     help="Learning rate for the optimizer")
+parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct",
+                    help="Name of the base model")
+parser.add_argument("--dataset_name", type=str, default="HuggingFaceH4/MATH-500",
+                    help="Name of dataset used to fine-tune")
+
 
 args = parser.parse_args()
 
@@ -42,6 +41,8 @@ batch_size = args.batch_size
 optim_name = args.optim_name
 n_training = args.n_training
 optim_lr = args.optim_lr
+model_id = args.model_id
+dataset_name = args.dataset_name
 
 print("batch_size", batch_size)
 print("gradient_accumulation_steps", gradient_accumulation_steps)
@@ -58,21 +59,33 @@ print("logging_steps", logging_steps)
 # Load data and model
 ################################################################################
 
-run_name = "llama_finetuning_" + dataset_name.split('/')[-1] + "_n" + str(n_training) + "_o" + optim_name + "_l" + lr_scheduler_type + str(optim_lr) + "_b" + str(batch_size)
-output_dir = "./llama_ft_" + model_id.split('/')[-1] + "_" + dataset_name.split('/')[-1] + "_n" + str(n_training) + "_o" + optim_name + "_l" + lr_scheduler_type + str(optim_lr) + "_b" + str(batch_size)
+project_name = "SFT_" + dataset_name.split('/')[-1]
+run_name   = "SFT_" + model_id.split('/')[-1] + "_" + dataset_name.split('/')[-1] + "_n" + str(n_training) + "_o" + optim_name + "_l" + lr_scheduler_type + str(optim_lr) + "_b" + str(batch_size)
+output_dir = "SFT_" + model_id.split('/')[-1] + "_" + dataset_name.split('/')[-1] + "_n" + str(n_training) + "_o" + optim_name + "_l" + lr_scheduler_type + str(optim_lr) + "_b" + str(batch_size)
+print("project_name", project_name)
+print("run_name", run_name)
 print("output_dir", output_dir)
 
 import wandb
-wandb.init(project="SFT",
+wandb.init(project=project_name,
            job_type="train",
            tags=["hf_sft", "llama"],
            name=run_name)
 
 from datasets import load_dataset
 
-if dataset_name == "HuggingFaceH4/MATH-500":
+print("Loading training dataset")
+if dataset_name == "gsm8k":
+    train_dataset = load_dataset(dataset_name, "main")["train"]
+    eval_dataset = None
+    
+elif dataset_name == "HuggingFaceH4/MATH-500":
     train_dataset = load_dataset(dataset_name, split="test")
     eval_dataset = None
+else:
+    print("Unkown dataset")
+    raise SystemExit(1)
+
 
 if n_training > 0:
     train_dataset = train_dataset.select(range(n_training))
@@ -209,10 +222,10 @@ elif optim_name == "myadam":
     from myadam import MyAdam
     print("Using MyAdam optimizer")
     optimizer = MyAdam(model.parameters(), lr=optim_lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-4)
-elif optim_name == "signadam":
-    from signadam import SignAdam
+elif optim_name == "memadam":
+    from memadam import Float16Adam
     print("Using SignAdam optimizer")
-    optimizer = SignAdam(model.parameters(), lr=optim_lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-4)
+    optimizer = Float16Adam(model.parameters(), lr=optim_lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-4)
 else:
     print("Using MARS optimizer")
     from mars import MARS
